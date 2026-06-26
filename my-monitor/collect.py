@@ -6,6 +6,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "connections.json")
 socket.setdefaulttimeout(0.8)
 dns_cache = {}
+asn_cache = {}
 
 def rdns(ip):
     if ip in dns_cache:
@@ -17,6 +18,34 @@ def rdns(ip):
         name = ""
     dns_cache[ip] = name
     return name
+
+def dig_txt(name):
+    try:
+        out = subprocess.run(["dig", "+short", "+time=1", "+tries=1", "TXT", name],
+                             capture_output=True, text=True, timeout=4).stdout
+        return out.strip().splitlines()[0].strip().strip('"') if out.strip() else ""
+    except Exception:
+        return ""
+
+def asn_lookup(ip):
+    """用 Team Cymru DNS 查 IPv4 的 ASN / 國家 / 網路名（cache）。"""
+    if ip in asn_cache:
+        return asn_cache[ip]
+    res = {"asn": "", "country": "", "asname": ""}
+    if ip.count(".") == 3 and ":" not in ip:   # 僅查 IPv4
+        rev = ".".join(reversed(ip.split(".")))
+        origin = dig_txt(rev + ".origin.asn.cymru.com")   # "ASN | prefix | CC | registry | date"
+        if origin:
+            p = [x.strip() for x in origin.split("|")]
+            res["asn"] = p[0].split()[0] if p and p[0] else ""
+            res["country"] = p[2] if len(p) > 2 else ""
+            if res["asn"]:
+                nm = dig_txt("AS" + res["asn"] + ".asn.cymru.com")  # "ASN | CC | registry | date | NAME"
+                if nm:
+                    name = [x.strip() for x in nm.split("|")][-1]
+                    res["asname"] = name.split(" - ", 1)[-1].rsplit(",", 1)[0].strip() or name
+    asn_cache[ip] = res
+    return res
 
 def is_private(ip):
     try:
@@ -63,7 +92,12 @@ def snapshot():
                 "priv": is_private(rip),
             })
     for c in uniq:
-        c["host"] = "" if c["priv"] else rdns(c["rip"])
+        if c["priv"]:
+            c["host"] = ""; c["asn"] = ""; c["country"] = ""; c["asname"] = ""
+        else:
+            c["host"] = rdns(c["rip"])
+            a = asn_lookup(c["rip"])
+            c["asn"] = a["asn"]; c["country"] = a["country"]; c["asname"] = a["asname"]
     uniq.sort(key=lambda c: (c["priv"], c["cmd"].lower(), c["rip"]))
     return uniq
 

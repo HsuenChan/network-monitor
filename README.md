@@ -35,7 +35,7 @@ sudo python3 my-monitor/dns_capture.py    # Ctrl+C 停止
 | 分頁 | 看什麼 | 資料來源 | 權限 |
 |---|---|---|---|
 | 🏢 **公司能看到** | 本機偵測到的端點代理（EDR/防毒/MDM）+ 這類代理通常看得到/看不到什麼 | `systemextensionsctl` / `ps` / `/Applications` / `profiles` | 免 sudo |
-| 🌐 **對外連線** | 哪個程式連到哪個 IP / 網域（TCP） | `lsof` | 免 sudo |
+| 🌐 **對外連線** | 哪個程式連到哪個 IP / 網域（TCP），含**國家 / ASN 網路名** | `lsof` + Team Cymru (`dig`) | 免 sudo |
 | 🔌 **監聽埠** | 哪個程式在聽哪個埠 | `lsof` | 免 sudo |
 | 🔎 **DNS / 服務** | 你連的網域 → 歸類成服務 + 行為輪廓 | `tcpdump udp/53` | **需 sudo** |
 
@@ -112,6 +112,5 @@ GitHub 分享預覽圖在 `assets/social-preview.png`（1280×640）。需更新
 
 ## 之後想擴充
 - 連線 / DNS 的歷史與流量 bytes（改用 `nettop`）
-- 目的地的國家 / ASN 標註
 - 可疑目的地或非預期監聽埠告警
 - Linux 版（改用 `ss` / `journalctl` 等對應指令）

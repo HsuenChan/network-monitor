@@ -128,8 +128,12 @@
   .proto { font-family:var(--mono); font-size:11px; padding:2px 7px; border-radius:5px; border:1px solid var(--hairline); color:var(--faint); }
   .proto.tcp { color:var(--scan); border-color:color-mix(in srgb,var(--scan) 35%,transparent); }
   .proto.udp { color:var(--latent); border-color:color-mix(in srgb,var(--latent) 33%,transparent); }
-  .qt { font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px; border:1px solid var(--hairline); color:var(--latent); white-space:nowrap; }
+  .qt { font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px; border:1px solid var(--hairline); color:var(--latent); white-space:nowrap; cursor:help; }
   td.note { color:var(--muted); font-size:13px; }
+  td.geo { white-space:nowrap; font-size:12.5px; }
+  td.geo .gorg { color:var(--text); }
+  td.geo .asn { font-family:var(--mono); color:var(--faint); font-size:11px; margin-left:5px; }
+  td.geo .gmut { color:var(--faint); }
   .empty { padding:34px 16px; text-align:center; color:var(--faint); font-family:var(--mono); font-size:13px; line-height:1.7; }
   .empty code { color:var(--scan); background:var(--surface-2); padding:1px 6px; border-radius:4px; }
   .foot { margin-top:18px; font-family:var(--mono); font-size:11px; letter-spacing:.04em; color:var(--faint); text-transform:uppercase; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
@@ -312,11 +316,11 @@
     </div>
     <div class="viz two">
       <div class="chart-card"><div class="ct"><span>連線數趨勢 · 近 90 秒</span><b id="conn-trend-now">–</b></div><canvas class="trend" id="conn-trend"></canvas></div>
-      <div class="chart-card"><div class="ct"><span>連線組成</span></div><div class="bars" id="conn-bars"></div></div>
+      <div class="chart-card"><div class="ct"><span>依國家分布</span></div><div class="bars" id="conn-bars"></div></div>
     </div>
     <div class="card"><div class="scroll"><table>
-      <thead><tr><th>程式</th><th>目的地</th><th>埠</th><th>類型</th></tr></thead>
-      <tbody id="conn-rows"><tr><td class="empty" colspan="4">等待資料…</td></tr></tbody>
+      <thead><tr><th>程式</th><th>目的地</th><th>國家 / 網路</th><th>埠</th><th>類型</th></tr></thead>
+      <tbody id="conn-rows"><tr><td class="empty" colspan="5">等待資料…</td></tr></tbody>
     </table></div></div>
     <div class="foot"><span class="live" style="width:6px;height:6px"></span><span>資料來源 <b>lsof -iTCP -sTCP:ESTABLISHED</b> · 僅本機</span></div>
   </section>
@@ -375,6 +379,8 @@
 <script>
   const $ = id => document.getElementById(id);
   function esc(s){ return String(s).replace(/[&<>"]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[m])); }
+  function flag(cc){ cc = (cc || "").toUpperCase(); if(!/^[A-Z]{2}$/.test(cc)) return "🏳️";
+    return String.fromCodePoint(...[...cc].map(ch => 0x1F1E6 + ch.charCodeAt(0) - 65)); }
 
   /* ── 趨勢資料緩衝 ── */
   const HMAX = 48;
@@ -515,19 +521,24 @@
     $("g-updated").textContent = data.ts ? data.ts.slice(11) : "—";
     pushHist("conn", conns.length, data.ts ? data.ts.slice(11) : "");
     drawTrend("conn-trend", hist.conn, "#5ec5d4"); $("conn-trend-now").textContent = conns.length;
-    renderBars("conn-bars", [
-      { label:"對外網際網路", value:conns.filter(c=>!c.priv).length, color:"var(--exposed)" },
-      { label:"區網 / 本機", value:conns.filter(c=>c.priv).length, color:"var(--blind)" },
-    ]);
+    const byC = {};
+    conns.filter(c => !c.priv && c.country).forEach(c => { byC[c.country] = (byC[c.country] || 0) + 1; });
+    const cArr = Object.entries(byC).sort((a,b) => b[1]-a[1]).slice(0,6)
+      .map(([cc,n]) => ({ label:`${flag(cc)} ${cc}`, value:n, color:"var(--scan)" }));
+    renderBars("conn-bars", cArr.length ? cArr : [{ label:"（無公網連線）", value:0, color:"var(--latent)" }]);
     const rows = $("conn-rows");
-    if(conns.length === 0){ rows.innerHTML = '<tr><td class="empty" colspan="4">目前沒有已建立的對外連線</td></tr>'; connKnown = new Set(); return; }
+    if(conns.length === 0){ rows.innerHTML = '<tr><td class="empty" colspan="5">目前沒有已建立的對外連線</td></tr>'; connKnown = new Set(); return; }
     const keyOf = c => c.cmd + "|" + c.rip + "|" + c.rport;
     rows.innerHTML = conns.map(c => {
       const fresh = (!connFirst && !connKnown.has(keyOf(c))) ? " fresh" : "";
       const dest = c.host ? `<span>${esc(c.host)}</span><span class="ip">${esc(c.rip)}</span>` : `<span>${esc(c.rip)}</span>`;
+      const geo = c.priv ? '<span class="gmut">區網 / 本機</span>'
+        : (c.asn || c.country)
+          ? `${flag(c.country)} <span class="gorg">${esc(c.asname || "—")}</span>${c.asn ? ` <span class="asn">AS${esc(c.asn)}</span>` : ""}`
+          : '<span class="gmut">查詢中…</span>';
       const tag = c.priv ? '<span class="tag lan">區網/本機</span>' : '<span class="tag ext">對外</span>';
       return `<tr class="${fresh.trim()}"><td class="proc">${esc(c.cmd)}<span class="pid">${esc(c.pid)}</span></td>`
-        + `<td class="host">${dest}</td><td class="port-c">:${esc(c.rport)}</td><td>${tag}</td></tr>`;
+        + `<td class="host">${dest}</td><td class="geo">${geo}</td><td class="port-c">:${esc(c.rport)}</td><td>${tag}</td></tr>`;
     }).join("");
     connKnown = new Set(conns.map(keyOf)); connFirst = false;
   }
@@ -607,6 +618,10 @@
     for(const [re, svc, cat] of RULES){ if(re.test(d)) return {svc, cat}; }
     const p = d.replace(/\.$/,"").split("."); return {svc: p.length >= 2 ? p.slice(-2).join(".") : d, cat:"other"};
   }
+  const DNS_TYPE = { A:"A · 域名 → IPv4 位址", AAAA:"AAAA · 域名 → IPv6 位址",
+    HTTPS:"HTTPS · 連線參數（支不支援 HTTP/3 等）", CNAME:"CNAME · 別名，指向另一個域名",
+    PTR:"PTR · 反查（IP → 域名）", NS:"NS · 負責此域名的名稱伺服器",
+    MX:"MX · 收信伺服器", TXT:"TXT · 文字紀錄（驗證 / SPF 等）", SRV:"SRV · 某服務的主機與埠" };
   const isNoise = d => /\.arpa$|\.local$|^_/.test(d.toLowerCase());
   function within60(hms, nowHms){ if(!hms || !nowHms) return false;
     const s = t => { const [h,m,x]=t.split(":").map(Number); return h*3600+m*60+x; };
@@ -637,7 +652,7 @@
     rows.innerHTML = doms.map(d => {
       const fresh = (!dnsFirst && !dnsKnown.has(d.name)) ? " fresh" : "";
       const cat = CAT[d._cat] || CAT.other;
-      const types = d.type.split(",").map(t => `<span class="qt">${esc(t)}</span>`).join(" ");
+      const types = d.type.split(",").map(t => `<span class="qt" title="${esc(DNS_TYPE[t] || t)}">${esc(t)}</span>`).join(" ");
       return `<tr class="${fresh.trim()}"><td class="dom">${esc(d.name)}</td>`
         + `<td class="svc"><span class="name">${esc(d._svc)}</span><span class="cat">${cat.ico} ${cat.cn}</span></td>`
         + `<td>${types}</td><td class="cnt">${esc(d.count)}</td><td class="time">${esc(d.last)}</td></tr>`;
