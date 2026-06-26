@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<title>network-monitor · 整合儀表板</title>
+<style>
+  :root {
+    --ground:#15171e; --surface:#1d2029; --surface-2:#23262f; --hairline:#2c313d;
+    --text:#dce0e8; --muted:#888fa0; --faint:#5e6573;
+    --scan:#5ec5d4; --crit:#e5575c; --exposed:#ef8f4c; --latent:#e0bd55; --blind:#54c08a;
+    --mono:ui-monospace,"SF Mono","SFMono-Regular",Menlo,monospace;
+    --sans:system-ui,-apple-system,"Helvetica Neue",sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ground); color:var(--text); font-family:var(--sans);
+         line-height:1.5; -webkit-font-smoothing:antialiased; font-feature-settings:"tnum"; }
+  .wrap { max-width:1080px; margin:0 auto; padding:clamp(24px,4vw,44px) clamp(14px,3vw,32px) 80px; }
+
+  /* masthead */
+  .eyebrow { font-family:var(--mono); font-size:11.5px; letter-spacing:.22em; text-transform:uppercase;
+             color:var(--scan); display:flex; align-items:center; gap:10px; }
+  .eyebrow::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--scan);
+                     box-shadow:0 0 0 3px color-mix(in srgb,var(--scan) 22%,transparent); }
+  /* topbar (app chrome) */
+  .topbar { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+            padding-bottom:16px; border-bottom:1px solid var(--hairline); }
+  .brand { display:flex; align-items:center; gap:12px; }
+  .brand .logo { width:34px; height:34px; flex:none; border-radius:9px; }
+  .brand-txt { display:flex; flex-direction:column; line-height:1.2; }
+  .brand-txt .bname { font-size:17px; font-weight:680; letter-spacing:-.01em; }
+  .brand-txt .btag { font-size:12px; color:var(--faint); }
+  .gstatus { display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px; color:var(--muted);
+             border:1px solid var(--hairline); background:var(--surface); border-radius:100px; padding:6px 13px; }
+  .gstatus b { color:var(--text); font-weight:600; }
+
+  /* tabs — segmented nav */
+  .tabs { display:flex; gap:3px; flex-wrap:wrap; margin:18px 0 26px; padding:4px; border-radius:12px;
+          background:var(--surface); border:1px solid var(--hairline); }
+  .tab { appearance:none; background:none; border:none; cursor:pointer; font-family:var(--sans);
+         font-size:13.5px; font-weight:560; color:var(--muted); padding:9px 14px; border-radius:8px;
+         display:flex; align-items:center; gap:9px; transition:background .14s,color .14s; }
+  .tab:hover { color:var(--text); background:var(--surface-2); }
+  .tab.active { color:var(--text); background:var(--surface-2); box-shadow:inset 0 0 0 1px var(--hairline); }
+  .tab.active .ind { box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 24%,transparent); }
+  .tab:focus-visible { outline:2px solid var(--scan); outline-offset:2px; }
+  .tab .ind { width:8px; height:8px; border-radius:2.5px; background:var(--c,var(--scan)); flex:none; transition:background .2s; }
+  .tab .ind.stale { background:var(--faint); box-shadow:none !important; }
+  .tab .badge { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--muted);
+                background:var(--ground); border:1px solid var(--hairline); border-radius:100px; padding:1px 8px; min-width:24px; text-align:center; }
+  .tab.active .badge { color:var(--c); border-color:color-mix(in srgb,var(--c) 38%,var(--hairline)); }
+
+  .panel { display:none; }
+  .panel.active { display:block; animation:fade .25s ease both; }
+  @keyframes fade { from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
+  @media (prefers-reduced-motion:reduce){ .panel.active{animation:none;} }
+
+  /* live header (per panel) */
+  .live { width:8px; height:8px; border-radius:50%; background:var(--blind);
+          box-shadow:0 0 0 3px color-mix(in srgb,var(--blind) 22%,transparent); animation:pulse 1.6s infinite; }
+  .live.stale { background:var(--crit); box-shadow:0 0 0 3px color-mix(in srgb,var(--crit) 22%,transparent); animation:none; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.35;} }
+  @media (prefers-reduced-motion:reduce){ .live{animation:none;} }
+  h2.ptitle { font-size:clamp(20px,3vw,26px); letter-spacing:-.01em; margin:12px 0 6px; font-weight:660; }
+  .sub { color:var(--muted); font-size:13.5px; margin:0; max-width:66ch; }
+  .sub code, .sub strong { font-family:var(--mono); }
+  .sub code { background:var(--surface-2); padding:1px 5px; border-radius:4px; font-size:12.5px; }
+
+  /* live stats */
+  .stats { display:flex; gap:10px; flex-wrap:wrap; margin:20px 0 16px; align-items:stretch; }
+  .stat { border:1px solid var(--hairline); border-radius:12px; background:var(--surface);
+          padding:13px 18px; min-width:118px; position:relative; box-shadow:0 1px 2px rgba(0,0,0,.25); }
+  .stat::before { content:""; position:absolute; left:0; top:13px; bottom:13px; width:3px; border-radius:3px; background:var(--c,var(--scan)); }
+  .stat .n { font-family:var(--mono); font-size:24px; font-weight:600; line-height:1.1; color:var(--c,var(--text)); letter-spacing:-.01em; }
+  .stat .l { font-size:11px; color:var(--muted); margin-top:3px; text-transform:uppercase; letter-spacing:.06em; }
+  .stat.hero { min-width:210px; flex:1 1 210px; display:flex; flex-direction:column; }
+  .stat.hero .spark { width:100%; height:30px; margin-top:auto; display:block; }
+  .clock { margin-left:auto; align-self:center; font-family:var(--mono); font-size:12.5px; color:var(--faint); }
+
+  /* ── 資料視覺化：趨勢圖 + 長條圖 ── */
+  .viz { display:grid; gap:12px; grid-template-columns:1fr; margin:0 0 16px; }
+  @media (min-width:760px){ .viz.two { grid-template-columns:1.55fr 1fr; } }
+  .chart-card { border:1px solid var(--hairline); border-radius:12px; background:var(--surface);
+                padding:14px 16px; box-shadow:0 1px 3px rgba(0,0,0,.28); min-width:0; }
+  .chart-card .ct { font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+                    color:var(--faint); margin-bottom:12px; display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .chart-card .ct b { color:var(--scan); font-weight:600; font-size:14px; }
+  .trend { width:100%; height:84px; display:block; cursor:crosshair; }
+  #tip { position:fixed; z-index:50; pointer-events:none; display:none; transform:translate(-50%,-132%);
+         background:var(--surface-2); border:1px solid var(--hairline); border-radius:8px; padding:6px 10px;
+         font-family:var(--mono); font-size:12.5px; color:var(--text); box-shadow:0 6px 18px rgba(0,0,0,.45); white-space:nowrap; }
+  #tip .tv { color:var(--scan); font-weight:600; } #tip .tt { color:var(--faint); font-size:11px; margin-left:6px; }
+  .bars { display:flex; flex-direction:column; gap:10px; }
+  .bar-row { display:grid; grid-template-columns:minmax(74px,auto) 1fr auto; align-items:center; gap:11px; font-size:12.5px; }
+  .bar-row .bl { color:var(--muted); white-space:nowrap; }
+  .bar-row .bt { height:8px; border-radius:100px; background:var(--surface-2); overflow:hidden; }
+  .bar-row .bf { display:block; height:100%; border-radius:100px; background:var(--c,var(--scan)); transition:width .45s cubic-bezier(.2,.7,.3,1); }
+  .bar-row .bv { font-family:var(--mono); color:var(--text); font-size:11.5px; white-space:nowrap; text-align:right; }
+
+  /* tables */
+  .card { border:1px solid var(--hairline); border-radius:12px; overflow:hidden; background:var(--surface); box-shadow:0 1px 3px rgba(0,0,0,.28); }
+  .scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; min-width:620px; }
+  thead th { text-align:left; font-family:var(--mono); font-size:10.5px; letter-spacing:.09em; text-transform:uppercase;
+             color:var(--faint); font-weight:500; padding:11px 16px; background:var(--surface-2);
+             border-bottom:1px solid var(--hairline); white-space:nowrap; position:sticky; top:0; }
+  tbody td { padding:10px 16px; border-bottom:1px solid var(--hairline); vertical-align:middle; }
+  tbody tr:last-child td { border-bottom:none; }
+  @keyframes flash { from{background:color-mix(in srgb,var(--scan) 22%,transparent);} to{background:transparent;} }
+  tr.fresh td { animation:flash 2.6s ease-out; }
+  @media (prefers-reduced-motion:reduce){ tr.fresh td{animation:none;} }
+  td.proc { font-weight:560; white-space:nowrap; }
+  td.proc .pid { color:var(--faint); font-family:var(--mono); font-weight:400; font-size:11.5px; margin-left:6px; }
+  td.host { font-family:var(--mono); font-size:13px; color:var(--text); word-break:break-all; }
+  td.host .ip { color:var(--faint); font-size:11.5px; display:block; }
+  td.port-c { font-family:var(--mono); color:var(--scan); white-space:nowrap; }
+  td.portnum { font-family:var(--mono); font-size:15px; font-weight:600; color:var(--scan); white-space:nowrap; }
+  td.dom { font-family:var(--mono); font-size:14px; font-weight:560; color:var(--text); word-break:break-all; }
+  td.cnt { font-family:var(--mono); color:var(--scan); text-align:right; white-space:nowrap; }
+  td.time { font-family:var(--mono); font-size:12.5px; color:var(--faint); white-space:nowrap; }
+  td.svc .name { font-weight:560; }
+  td.svc .cat { color:var(--faint); font-size:12px; display:block; margin-top:1px; }
+  .tag { font-family:var(--mono); font-size:10.5px; padding:2px 8px; border-radius:100px; white-space:nowrap; border:1px solid transparent; }
+  .tag.ext, .tag.all { color:var(--exposed); background:color-mix(in srgb,var(--exposed) 12%,transparent); border-color:color-mix(in srgb,var(--exposed) 33%,transparent); }
+  .tag.lan, .tag.local { color:var(--blind); background:color-mix(in srgb,var(--blind) 11%,transparent); border-color:color-mix(in srgb,var(--blind) 30%,transparent); }
+  .tag.iface { color:var(--muted); background:var(--surface-2); border-color:var(--hairline); }
+  .proto { font-family:var(--mono); font-size:11px; padding:2px 7px; border-radius:5px; border:1px solid var(--hairline); color:var(--faint); }
+  .proto.tcp { color:var(--scan); border-color:color-mix(in srgb,var(--scan) 35%,transparent); }
+  .proto.udp { color:var(--latent); border-color:color-mix(in srgb,var(--latent) 33%,transparent); }
+  .qt { font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px; border:1px solid var(--hairline); color:var(--latent); white-space:nowrap; }
+  td.note { color:var(--muted); font-size:13px; }
+  .empty { padding:34px 16px; text-align:center; color:var(--faint); font-family:var(--mono); font-size:13px; line-height:1.7; }
+  .empty code { color:var(--scan); background:var(--surface-2); padding:1px 6px; border-radius:4px; }
+  .foot { margin-top:18px; font-family:var(--mono); font-size:11px; letter-spacing:.04em; color:var(--faint); text-transform:uppercase; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .foot b { color:var(--muted); }
+
+  /* MIS 視角彙總 (DNS) */
+  .mis { border:1px solid color-mix(in srgb,var(--crit) 26%,var(--hairline)); border-radius:12px;
+         background:color-mix(in srgb,var(--crit) 5%,var(--surface)); padding:16px 18px; margin-bottom:16px; }
+  .mis-head { display:flex; align-items:center; gap:9px; margin-bottom:12px; }
+  .mis-head .badge { font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--crit); border:1px solid color-mix(in srgb,var(--crit) 38%,transparent);
+    background:color-mix(in srgb,var(--crit) 9%,transparent); border-radius:100px; padding:3px 10px; }
+  .mis-head .t { font-size:14px; font-weight:620; }
+  .profile { color:var(--text); font-size:13.5px; line-height:1.6; margin:0 0 14px; }
+  .profile b { color:var(--exposed); }
+  .cats { display:flex; flex-wrap:wrap; gap:8px; }
+  .cat-chip { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--hairline); background:var(--surface);
+    border-radius:9px; padding:7px 11px; font-size:12.5px; }
+  .cat-chip .ico { font-size:14px; } .cat-chip .cn { color:var(--muted); }
+  .cat-chip .cc { font-family:var(--mono); font-weight:600; color:var(--scan); }
+  .noise { margin-top:10px; font-family:var(--mono); font-size:11px; color:var(--faint); }
+
+  /* ───────── 公司視角 / Avast 稽核 (scoped .audit) ───────── */
+  .audit .device { margin-top:8px; border:1px solid var(--hairline); border-radius:12px;
+        background:linear-gradient(180deg,var(--surface),#181b22); overflow:hidden; }
+  .audit .device-head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap;
+        padding:14px 18px; border-bottom:1px solid var(--hairline); font-family:var(--mono); font-size:12px;
+        letter-spacing:.04em; color:var(--faint); text-transform:uppercase; }
+  .audit .device-head b { color:var(--text); font-weight:600; }
+  .audit .id-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px; background:var(--hairline); }
+  .audit .id-cell { background:var(--surface); padding:13px 18px; }
+  .audit .id-cell .k { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); }
+  .audit .id-cell .v { font-family:var(--mono); font-size:14px; margin-top:3px; color:var(--text); word-break:break-all; }
+  .audit .verdict { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-top:14px; }
+  .audit .vstat { border:1px solid var(--hairline); border-radius:12px; background:var(--surface); padding:16px 18px; position:relative; }
+  .audit .vstat::before { content:""; position:absolute; left:0; top:14px; bottom:14px; width:3px; border-radius:3px; background:var(--c,var(--scan)); }
+  .audit .vstat .n { font-family:var(--mono); font-size:21px; font-weight:600; color:var(--c,var(--text)); }
+  .audit .vstat .l { font-size:13px; color:var(--muted); margin-top:2px; }
+  .audit section { margin-top:34px; }
+  .audit .tier-head { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+  .audit .tier-dot { width:11px; height:11px; border-radius:3px; background:var(--c); flex:none; }
+  .audit .tier-head h3 { font-size:17px; margin:0; letter-spacing:-.01em; font-weight:640; }
+  .audit .tier-tag { font-family:var(--mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--c);
+        border:1px solid color-mix(in srgb,var(--c) 40%,var(--hairline)); border-radius:100px; padding:2px 9px; margin-left:auto;
+        background:color-mix(in srgb,var(--c) 9%,transparent); }
+  .audit .tier-note { color:var(--muted); font-size:14px; margin:0 0 14px; max-width:64ch; }
+  .audit .table-card { border:1px solid var(--hairline); border-left:3px solid var(--c); border-radius:12px; overflow:hidden; background:var(--surface); }
+  .audit td.item { font-weight:560; white-space:nowrap; }
+  .audit td.val { font-family:var(--mono); font-size:13px; color:var(--text); word-break:break-word; }
+  .audit td.val .warn { color:var(--exposed); }
+  .audit .src { font-family:var(--mono); font-size:12px; color:var(--faint); white-space:nowrap; }
+  .audit .pill { display:inline-flex; align-items:center; gap:5px; font-family:var(--mono); font-size:11px; letter-spacing:.04em;
+        padding:2px 8px; border-radius:100px; white-space:nowrap; border:1px solid transparent; }
+  .audit .pill.yes { color:var(--crit); background:color-mix(in srgb,var(--crit) 13%,transparent); border-color:color-mix(in srgb,var(--crit) 35%,transparent); }
+  .audit .pill.maybe { color:var(--exposed); background:color-mix(in srgb,var(--exposed) 13%,transparent); border-color:color-mix(in srgb,var(--exposed) 35%,transparent); }
+  .audit .pill.localp { color:var(--latent); background:color-mix(in srgb,var(--latent) 12%,transparent); border-color:color-mix(in srgb,var(--latent) 33%,transparent); }
+  .audit .pill.no { color:var(--blind); background:color-mix(in srgb,var(--blind) 12%,transparent); border-color:color-mix(in srgb,var(--blind) 33%,transparent); }
+  .audit .callout { margin-top:14px; border:1px solid color-mix(in srgb,var(--exposed) 30%,var(--hairline));
+        background:color-mix(in srgb,var(--exposed) 7%,var(--surface)); border-radius:10px; padding:13px 16px;
+        font-size:13.5px; color:var(--text); display:flex; gap:11px; }
+  .audit .callout .mk { color:var(--exposed); font-family:var(--mono); font-weight:700; flex:none; }
+  .audit .callout code, .audit .reco code { font-family:var(--mono); background:var(--surface-2); padding:1px 5px; border-radius:4px; font-size:12.5px; }
+  .audit .endpoints { display:grid; gap:1px; background:var(--hairline); border:1px solid var(--hairline); border-radius:10px; overflow:hidden; margin-top:8px; }
+  .audit .ep { background:var(--surface); padding:12px 16px; display:flex; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+  .audit .ep .role { color:var(--muted); font-size:13px; }
+  .audit .ep .url { font-family:var(--mono); font-size:12.5px; color:var(--scan); word-break:break-all; }
+  .audit .reco { margin-top:18px; color:var(--muted); font-size:13.5px; max-width:70ch; }
+  .audit .reco b { color:var(--text); }
+  .audit .meta { margin-top:18px; font-family:var(--mono); font-size:11px; letter-spacing:.05em; color:var(--faint); text-transform:uppercase; }
+  .audit hr.div { border:none; border-top:1px solid var(--hairline); margin:30px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="9" fill="#1d2029"/>
+        <g fill="none" stroke="#5ec5d4" stroke-linecap="round">
+          <circle cx="16" cy="16" r="12" stroke-opacity="0.22" stroke-width="1.4"/>
+          <circle cx="16" cy="16" r="8.5" stroke-opacity="0.5" stroke-width="1.6"/>
+          <circle cx="16" cy="16" r="5" stroke-opacity="0.9" stroke-width="2"/>
+        </g>
+        <path d="M16 16 L24.5 10" stroke="#5ec5d4" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.55"/>
+        <circle cx="16" cy="16" r="2.5" fill="#5ec5d4"/>
+        <circle cx="21.8" cy="10.2" r="2" fill="#ef8f4c"/>
+      </svg>
+      <div class="brand-txt"><span class="bname">network-monitor</span><span class="btag">本機網路可視性 · 對照公司視角</span></div>
+    </div>
+    <div class="gstatus"><span class="live" id="g-live"></span><span>更新於 <b id="g-updated">—</b></span></div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="company" style="--c:var(--crit)"><span class="ind"></span>公司能看到</button>
+    <button class="tab" data-tab="conn" style="--c:var(--exposed)"><span class="ind" id="conn-live"></span>對外連線<span class="badge" id="conn-badge">–</span></button>
+    <button class="tab" data-tab="ports" style="--c:var(--latent)"><span class="ind" id="ports-live"></span>監聽埠<span class="badge" id="ports-badge">–</span></button>
+    <button class="tab" data-tab="dns" style="--c:var(--scan)"><span class="ind" id="dns-live"></span>DNS / 服務<span class="badge" id="dns-badge">–</span></button>
+  </nav>
+
+  <!-- ════════ 公司視角 / Avast 稽核 ════════ -->
+  <section id="panel-company" class="panel audit active">
+    <div class="eyebrow" style="color:var(--crit)">端點代理偵測 · 這台機器</div>
+    <h2 class="ptitle">公司 / 管理方可能看得到我哪些資料</h2>
+    <p class="sub">掃描本機已安裝的安全 / 管理代理（EDR / 防毒 / MDM），列出實際偵測到的，並說明這類代理「通常」看得到與看不到的範圍。沒裝任何代理就會顯示「未偵測到」。</p>
+
+    <div class="device" style="margin-top:18px">
+      <div class="device-head">
+        <span>本機裝置身分</span>
+        <span>代理 UUID <b id="id-uuid">—</b></span>
+      </div>
+      <div class="id-grid">
+        <div class="id-cell"><div class="k">電腦名稱</div><div class="v" id="id-host">讀取中…</div></div>
+        <div class="id-cell"><div class="k">使用者</div><div class="v" id="id-user">讀取中…</div></div>
+        <div class="id-cell"><div class="k">機型 / 系統</div><div class="v" id="id-model">讀取中…</div></div>
+        <div class="id-cell"><div class="k">序號</div><div class="v" id="id-serial">讀取中…</div></div>
+        <div class="id-cell"><div class="k">內網 IP</div><div class="v" id="id-ip">讀取中…</div></div>
+        <div class="id-cell"><div class="k">網卡 MAC</div><div class="v" id="id-mac">讀取中…</div></div>
+      </div>
+    </div>
+
+    <div class="stats" style="margin-top:14px">
+      <div class="stat" style="--c:var(--crit)"><div class="n" id="agents-count">–</div><div class="l">偵測到的代理</div></div>
+      <div class="stat" style="--c:var(--exposed)"><div class="n" id="agents-mdm" style="font-size:14px;letter-spacing:0;line-height:1.3">–</div><div class="l">MDM 受管狀態</div></div>
+    </div>
+
+    <section style="--c:var(--crit)">
+      <div class="tier-head"><span class="tier-dot"></span><h3>這台機器偵測到的端點 / 管理代理</h3><span class="tier-tag">本機掃描</span></div>
+      <p class="tier-note">比對系統擴充、執行程序、應用程式與背景服務中已知的安全 / 管理廠商。沒裝任何代理就顯示「未偵測到」。</p>
+      <div class="table-card"><div class="scroll"><table>
+        <thead><tr><th>代理</th><th>類別</th><th>偵測來源</th><th>研判可見範圍</th></tr></thead>
+        <tbody id="agents-rows"><tr><td class="empty" colspan="4">掃描中…</td></tr></tbody>
+      </table></div></div>
+    </section>
+
+    <section style="--c:var(--exposed)">
+      <div class="tier-head"><span class="tier-dot"></span><h3>這類代理「通常」看得到</h3><span class="tier-tag">一般通則</span></div>
+      <p class="tier-note">依代理類型而定（非針對特定產品）；實際以上方偵測到的代理為準。</p>
+      <div class="table-card"><div class="scroll"><table>
+        <thead><tr><th>項目</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td class="item">裝置身分</td><td class="val">電腦名稱 / 使用者 / 序號 / IP / MAC（見上方）</td></tr>
+          <tr><td class="item">防護 / 合規狀態</td><td class="val">防護模組開關、病毒庫版本、是否符合政策</td></tr>
+          <tr><td class="item">檔案掃描（防毒 / EPP）</td><td class="val">存取的檔案路徑與內容雜湊；可疑時可能上傳雲端分析</td></tr>
+          <tr><td class="item">行為遙測（EDR）</td><td class="val">程序執行、網路連線等行為，回報雲端主控台</td></tr>
+          <tr><td class="item">遠端管理（MDM）</td><td class="val">下發設定 / 政策，可遠端鎖定 / 清除 / 安裝 App</td></tr>
+        </tbody>
+      </table></div></div>
+    </section>
+
+    <section style="--c:var(--blind)">
+      <div class="tier-head"><span class="tier-dot"></span><h3>防毒 / EPP 類「通常」看不到</h3><span class="tier-tag">盲區</span></div>
+      <p class="tier-note">以下屬於員工行為監控的範疇——一般防毒 / EDR 不做，除非公司另外安裝專門的監控軟體。</p>
+      <div class="table-card"><div class="scroll"><table>
+        <thead><tr><th>項目</th><th>狀態</th></tr></thead>
+        <tbody>
+          <tr><td class="item">鍵盤側錄</td><td><span class="pill no">✕ 一般不做</span></td></tr>
+          <tr><td class="item">螢幕截圖 / 錄影</td><td><span class="pill no">✕ 一般不做</span></td></tr>
+          <tr><td class="item">剪貼簿內容</td><td><span class="pill no">✕ 一般不做</span></td></tr>
+          <tr><td class="item">打字內容 / App 使用時長</td><td><span class="pill no">✕ 一般不做</span></td></tr>
+        </tbody>
+      </table></div></div>
+    </section>
+
+    <p class="reco"><b>提醒：</b>偵測到的多為公司配發的合法資安 / 管理軟體，<b>請勿自行移除</b>（通常違反 IT 政策並會觸發告警）。對監控範圍有疑慮，向你公司的 IT / MIS 確認最準確。</p>
+    <div class="meta" id="agents-ts">掃描時間 — · 來源：本機系統擴充 / 程序 / 應用程式（唯讀，免 sudo）</div>
+  </section>
+
+  <!-- ════════ 對外連線 ════════ -->
+  <section id="panel-conn" class="panel">
+    <div class="eyebrow" style="color:var(--exposed)"><span class="live" id="conn-status-dot"></span><span id="conn-status">連線中…</span></div>
+    <h2 class="ptitle">本機對外網路連線 · 即時</h2>
+    <p class="sub">從 macOS <code>lsof</code> 觀測當下所有已建立的對外 TCP 連線。每 2 秒更新。只含 TCP——Chrome 走 QUIC 的部分請看「DNS / 服務」分頁。</p>
+    <div class="stats">
+      <div class="stat" style="--c:var(--scan)"><div class="n" id="conn-total">–</div><div class="l">連線總數</div></div>
+      <div class="stat" style="--c:var(--exposed)"><div class="n" id="conn-ext">–</div><div class="l">對外網際網路</div></div>
+      <div class="stat" style="--c:var(--latent)"><div class="n" id="conn-lan">–</div><div class="l">區網 / 本機</div></div>
+      <div class="stat" style="--c:var(--blind)"><div class="n" id="conn-proc">–</div><div class="l">程式數</div></div>
+      <div class="clock" id="conn-clock">—</div>
+    </div>
+    <div class="viz two">
+      <div class="chart-card"><div class="ct"><span>連線數趨勢 · 近 90 秒</span><b id="conn-trend-now">–</b></div><canvas class="trend" id="conn-trend"></canvas></div>
+      <div class="chart-card"><div class="ct"><span>連線組成</span></div><div class="bars" id="conn-bars"></div></div>
+    </div>
+    <div class="card"><div class="scroll"><table>
+      <thead><tr><th>程式</th><th>目的地</th><th>埠</th><th>類型</th></tr></thead>
+      <tbody id="conn-rows"><tr><td class="empty" colspan="4">等待資料…</td></tr></tbody>
+    </table></div></div>
+    <div class="foot"><span class="live" style="width:6px;height:6px"></span><span>資料來源 <b>lsof -iTCP -sTCP:ESTABLISHED</b> · 僅本機</span></div>
+  </section>
+
+  <!-- ════════ 監聽埠 ════════ -->
+  <section id="panel-ports" class="panel">
+    <div class="eyebrow" style="color:var(--exposed)"><span class="live" id="ports-status-dot"></span><span id="ports-status">連線中…</span></div>
+    <h2 class="ptitle">本機監聽埠 · 即時</h2>
+    <p class="sub">哪些程式正在<strong>監聽</strong>哪些埠（等別人連進來）。<code>lsof LISTEN / UDP</code>，每 3 秒更新。「全部介面」代表外部也連得到。</p>
+    <div class="stats">
+      <div class="stat" style="--c:var(--scan)"><div class="n" id="ports-total">–</div><div class="l">監聽埠總數</div></div>
+      <div class="stat" style="--c:var(--exposed)"><div class="n" id="ports-all">–</div><div class="l">全部介面（對外）</div></div>
+      <div class="stat" style="--c:var(--blind)"><div class="n" id="ports-local">–</div><div class="l">僅本機</div></div>
+      <div class="stat" style="--c:var(--latent)"><div class="n" id="ports-proc">–</div><div class="l">程式數</div></div>
+      <div class="clock" id="ports-clock">—</div>
+    </div>
+    <div class="viz two">
+      <div class="chart-card"><div class="ct"><span>監聽埠趨勢 · 近 90 秒</span><b id="ports-trend-now">–</b></div><canvas class="trend" id="ports-trend"></canvas></div>
+      <div class="chart-card"><div class="ct"><span>範圍 / 協定分布</span></div><div class="bars" id="ports-bars"></div></div>
+    </div>
+    <div class="card"><div class="scroll"><table>
+      <thead><tr><th>埠</th><th>協定</th><th>程式</th><th>範圍</th><th>用途研判</th></tr></thead>
+      <tbody id="ports-rows"><tr><td class="empty" colspan="5">等待資料…</td></tr></tbody>
+    </table></div></div>
+    <div class="foot"><span class="live" style="width:6px;height:6px"></span><span>資料來源 <b>lsof LISTEN / UDP</b> · 用途研判僅供參考</span></div>
+  </section>
+
+  <!-- ════════ DNS / 服務 ════════ -->
+  <section id="panel-dns" class="panel">
+    <div class="eyebrow"><span class="live" id="dns-status-dot"></span><span id="dns-status">連線中…</span></div>
+    <h2 class="ptitle">DNS 查詢 / 服務歸類 · 即時</h2>
+    <p class="sub">側錄本機 DNS（<code>udp 53</code>），直接顯示你連的<strong>網域名稱</strong>並歸類成服務——這就是「公司能從瀏覽推測你在看什麼」的同一層。含 Chrome QUIC。需 sudo 啟動擷取。</p>
+    <div class="stats">
+      <div class="stat" style="--c:var(--scan)"><div class="n" id="dns-dom">–</div><div class="l">不重複網域</div></div>
+      <div class="stat" style="--c:var(--exposed)"><div class="n" id="dns-total">–</div><div class="l">總查詢次數</div></div>
+      <div class="stat" style="--c:var(--latent)"><div class="n" id="dns-recent">–</div><div class="l">最近 60 秒活躍</div></div>
+      <div class="clock" id="dns-clock">—</div>
+    </div>
+    <div class="chart-card" style="margin-bottom:16px"><div class="ct"><span>不重複網域趨勢 · 近 90 秒</span><b id="dns-trend-now">–</b></div><canvas class="trend" id="dns-trend"></canvas></div>
+    <div class="mis" id="dns-mis" hidden>
+      <div class="mis-head"><span class="badge">MIS 視角</span><span class="t">從 DNS 還原的行為輪廓（依類別查詢量）</span></div>
+      <p class="profile" id="dns-profile">—</p>
+      <div class="bars" id="dns-cats"></div>
+      <div class="noise" id="dns-noise"></div>
+    </div>
+    <div class="card"><div class="scroll"><table>
+      <thead><tr><th>網域</th><th>服務 / 類別</th><th>類型</th><th style="text-align:right">次數</th><th>最後查詢</th></tr></thead>
+      <tbody id="dns-rows"><tr><td class="empty" colspan="5">等待資料…<br>請先在專案目錄以 sudo 啟動擷取：<code>sudo python3 my-monitor/dns_capture.py</code></td></tr></tbody>
+    </table></div></div>
+    <div class="foot"><span class="live" style="width:6px;height:6px"></span><span>資料來源 <b>tcpdump udp/53</b> · 拿不到網址路徑與內容</span></div>
+  </section>
+
+</div>
+<div id="tip"></div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  function esc(s){ return String(s).replace(/[&<>"]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[m])); }
+
+  /* ── 趨勢資料緩衝 ── */
+  const HMAX = 48;
+  const hist = { conn:[], ports:[], dns:[] };
+  const histT = { conn:[], ports:[], dns:[] };   // 對應每點的時間 (HH:MM:SS)
+  const hover = { tab:null, idx:null };           // 滑鼠停留的點
+  function pushHist(k, v, t){
+    const a = hist[k], b = histT[k];
+    a.push(v); b.push(t || "");
+    if(a.length > HMAX){ a.shift(); b.shift(); }
+  }
+
+  /* ── 趨勢面積圖（較大，可流動動畫）── */
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function drawTrend(id, arr, color, phase, hoverIdx){
+    const c = $(id); if(!c) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth || 400, h = c.clientHeight || 84;
+    if(c.width !== Math.round(w*dpr)){ c.width = Math.round(w*dpr); c.height = Math.round(h*dpr); }
+    const ctx = c.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+    ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 1;
+    for(let i=0;i<=2;i++){ const y=Math.round((h-1)*(i/2))+0.5; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+    if(arr.length < 2) return;
+    const max = Math.max(...arr), min = Math.min(...arr), rng = (max-min) || 1, pad = 5;
+    const X = i => (i/(arr.length-1))*w;
+    const Y = v => (h-pad) - ((v-min)/rng)*(h-2*pad);
+    const pts = arr.map((v,i) => [X(i), Y(v)]);
+    // 面積
+    ctx.beginPath(); ctx.moveTo(0,h); pts.forEach(p=>ctx.lineTo(p[0],p[1])); ctx.lineTo(w,h); ctx.closePath();
+    const g = ctx.createLinearGradient(0,0,0,h); g.addColorStop(0,color+"3a"); g.addColorStop(1,color+"00");
+    ctx.fillStyle = g; ctx.fill();
+    // 線
+    ctx.beginPath(); pts.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+    // 線上流動的漸層高光（與光點同步）
+    if(phase != null){
+      const ph = Math.min(0.999, Math.max(0.001, phase));
+      const lo = Math.max(0, ph-0.22), hi = Math.min(1, ph+0.22);
+      const lg = ctx.createLinearGradient(0,0,w,0);
+      lg.addColorStop(0, "#ffffff00");
+      if(lo > 0) lg.addColorStop(lo, "#ffffff00");
+      lg.addColorStop(ph, "#ffffffcc");
+      if(hi < 1) lg.addColorStop(hi, "#ffffff00");
+      lg.addColorStop(1, "#ffffff00");
+      ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = 8;
+      ctx.beginPath(); pts.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));
+      ctx.strokeStyle = lg; ctx.lineWidth = 2.6; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.stroke(); ctx.restore();
+    }
+    // 沿線流動的光點
+    if(phase != null){
+      const pos = phase*(pts.length-1), idx = Math.min(pts.length-2, Math.floor(pos)), f = pos-idx;
+      const px = pts[idx][0] + (pts[idx+1][0]-pts[idx][0])*f;
+      const py = pts[idx][1] + (pts[idx+1][1]-pts[idx][1])*f;
+      ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.arc(px,py,3.2,0,7); ctx.fillStyle = "#eafffb"; ctx.fill(); ctx.restore();
+    }
+    // 端點呼吸發光
+    const ep = pts[pts.length-1];
+    const r = phase != null ? 2.6 + (Math.sin(phase*Math.PI*2)+1)*0.9 : 3;
+    ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = 9;
+    ctx.beginPath(); ctx.arc(ep[0],ep[1],r,0,7); ctx.fillStyle = color; ctx.fill(); ctx.restore();
+    // hover 十字準星 + 標記點
+    if(hoverIdx != null && hoverIdx >= 0 && hoverIdx < pts.length){
+      const hx = pts[hoverIdx][0], hy = pts[hoverIdx][1];
+      ctx.strokeStyle = color + "66"; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(hx, 0); ctx.lineTo(hx, h); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(hx, hy, 4, 0, 7); ctx.fillStyle = "#fff";
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.fill(); ctx.stroke();
+    }
+  }
+
+  /* ── 水平長條圖 ── */
+  function renderBars(id, items){
+    const el = $(id); if(!el) return;
+    const max = Math.max(1, ...items.map(i => i.value));
+    el.innerHTML = items.map(i => {
+      const pct = Math.round((i.value / max) * 100);
+      return `<div class="bar-row" style="--c:${i.color || 'var(--scan)'}">`
+        + `<span class="bl">${esc(i.label)}</span>`
+        + `<span class="bt"><span class="bf" style="width:${pct}%"></span></span>`
+        + `<span class="bv">${esc(i.vlabel != null ? i.vlabel : i.value)}</span></div>`;
+    }).join("");
+  }
+
+  /* ── 分頁切換 ── */
+  let activeTab = "company";
+  document.querySelectorAll(".tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+      btn.classList.add("active");
+      const t = btn.dataset.tab; activeTab = t;
+      hover.tab = null; hover.idx = null; $("tip").style.display = "none";
+      $("panel-" + t).classList.add("active");
+      if(hist[t] && hist[t].length){ drawTrend(t + "-trend", hist[t], "#5ec5d4"); }
+    });
+  });
+
+  /* ── 流動動畫：只重繪當前分頁的趨勢圖 ── */
+  if(!reduceMotion){
+    const period = 2400;
+    function animate(now){
+      if(hist[activeTab] && hist[activeTab].length >= 2){
+        drawTrend(activeTab + "-trend", hist[activeTab], "#5ec5d4", (now % period) / period,
+                  hover.tab === activeTab ? hover.idx : null);
+      }
+      requestAnimationFrame(animate);
+    }
+    requestAnimationFrame(animate);
+  }
+
+  function setLive(prefix, ok, msg){
+    const tabDot = $(prefix + "-live");            // 分頁上的小燈
+    const hdrDot = $(prefix + "-status-dot");      // 面板內的燈
+    const st = $(prefix + "-status");
+    [tabDot, hdrDot].forEach(d => d && d.classList.toggle("stale", !ok));
+    if(st) st.textContent = ok ? "即時監看中" : ("等待背景腳本…" + (msg ? ` (${msg})` : ""));
+    if(prefix === "conn"){ const gl = $("g-live"); if(gl) gl.classList.toggle("stale", !ok); }
+  }
+
+  /* ── 對外連線 ── */
+  let connKnown = new Set(), connFirst = true;
+  async function fetchConn(){
+    try {
+      const r = await fetch("my-monitor/connections.json?_=" + Date.now(), {cache:"no-store"});
+      if(!r.ok) throw new Error(r.status);
+      renderConn(await r.json()); setLive("conn", true);
+    } catch(e){ setLive("conn", false, e.message); }
+  }
+  function renderConn(data){
+    const conns = data.conns || [];
+    $("conn-total").textContent = conns.length;
+    $("conn-ext").textContent = conns.filter(c => !c.priv).length;
+    $("conn-lan").textContent = conns.filter(c => c.priv).length;
+    $("conn-proc").textContent = new Set(conns.map(c => c.cmd)).size;
+    $("conn-clock").textContent = data.ts || "";
+    $("conn-badge").textContent = conns.length;
+    $("g-updated").textContent = data.ts ? data.ts.slice(11) : "—";
+    pushHist("conn", conns.length, data.ts ? data.ts.slice(11) : "");
+    drawTrend("conn-trend", hist.conn, "#5ec5d4"); $("conn-trend-now").textContent = conns.length;
+    renderBars("conn-bars", [
+      { label:"對外網際網路", value:conns.filter(c=>!c.priv).length, color:"var(--exposed)" },
+      { label:"區網 / 本機", value:conns.filter(c=>c.priv).length, color:"var(--blind)" },
+    ]);
+    const rows = $("conn-rows");
+    if(conns.length === 0){ rows.innerHTML = '<tr><td class="empty" colspan="4">目前沒有已建立的對外連線</td></tr>'; connKnown = new Set(); return; }
+    const keyOf = c => c.cmd + "|" + c.rip + "|" + c.rport;
+    rows.innerHTML = conns.map(c => {
+      const fresh = (!connFirst && !connKnown.has(keyOf(c))) ? " fresh" : "";
+      const dest = c.host ? `<span>${esc(c.host)}</span><span class="ip">${esc(c.rip)}</span>` : `<span>${esc(c.rip)}</span>`;
+      const tag = c.priv ? '<span class="tag lan">區網/本機</span>' : '<span class="tag ext">對外</span>';
+      return `<tr class="${fresh.trim()}"><td class="proc">${esc(c.cmd)}<span class="pid">${esc(c.pid)}</span></td>`
+        + `<td class="host">${dest}</td><td class="port-c">:${esc(c.rport)}</td><td>${tag}</td></tr>`;
+    }).join("");
+    connKnown = new Set(conns.map(keyOf)); connFirst = false;
+  }
+
+  /* ── 監聽埠 ── */
+  let portsKnown = new Set(), portsFirst = true;
+  const PORT_HINT = {80:"HTTP 服務",443:"HTTPS",3000:"Node / React dev server",5000:"macOS 控制中心 (AirPlay)",
+    7000:"macOS 控制中心 (AirPlay)",5173:"Vite dev server",8080:"HTTP 代理 / dev server",9527:"前端 dev server (常見 Vue)",
+    35729:"LiveReload 自動刷新",6463:"Discord RPC",57621:"Spotify 區網探索",5353:"mDNS / Bonjour",1900:"SSDP / UPnP 探索",8791:"← 本監控工具的網頁伺服器"};
+  const PROC_HINT = [[/code/i,"VS Code"],[/python/i,"Python 服務"],[/node/i,"Node.js 服務"],[/controlce/i,"macOS 控制中心"],
+    [/rapportd/i,"Apple 接力 / Handoff"],[/spotify/i,"Spotify"],[/discord/i,"Discord"],[/notion/i,"Notion"],
+    [/antigrav/i,"Antigravity IDE"],[/language/i,"語言伺服器 (LSP)"],[/chronod/i,"Apple 系統服務"],[/weather/i,"天氣小工具"]];
+  function portHint(p){ if(PORT_HINT[p.port]) return PORT_HINT[p.port]; for(const [re,l] of PROC_HINT){ if(re.test(p.cmd)) return l; } return "—"; }
+  async function fetchPorts(){
+    try {
+      const r = await fetch("my-monitor/ports.json?_=" + Date.now(), {cache:"no-store"});
+      if(!r.ok) throw new Error(r.status);
+      renderPorts(await r.json()); setLive("ports", true);
+    } catch(e){ setLive("ports", false, e.message); }
+  }
+  function renderPorts(data){
+    const ports = data.ports || [];
+    $("ports-total").textContent = ports.length;
+    $("ports-all").textContent = ports.filter(p => p.scope === "全部介面").length;
+    $("ports-local").textContent = ports.filter(p => p.scope === "僅本機").length;
+    $("ports-proc").textContent = new Set(ports.map(p => p.cmd)).size;
+    $("ports-clock").textContent = data.ts || "";
+    $("ports-badge").textContent = ports.length;
+    pushHist("ports", ports.length, data.ts ? data.ts.slice(11) : "");
+    drawTrend("ports-trend", hist.ports, "#5ec5d4"); $("ports-trend-now").textContent = ports.length;
+    renderBars("ports-bars", [
+      { label:"全部介面", value:ports.filter(p=>p.scope==="全部介面").length, color:"var(--exposed)" },
+      { label:"僅本機", value:ports.filter(p=>p.scope==="僅本機").length, color:"var(--blind)" },
+      { label:"TCP", value:ports.filter(p=>p.proto==="TCP").length, color:"var(--scan)" },
+      { label:"UDP", value:ports.filter(p=>p.proto==="UDP").length, color:"var(--latent)" },
+    ]);
+    const rows = $("ports-rows");
+    if(ports.length === 0){ rows.innerHTML = '<tr><td class="empty" colspan="5">目前沒有監聽中的埠</td></tr>'; portsKnown = new Set(); return; }
+    const keyOf = p => p.proto + p.port + "|" + p.cmd;
+    rows.innerHTML = ports.map(p => {
+      const fresh = (!portsFirst && !portsKnown.has(keyOf(p))) ? " fresh" : "";
+      const proto = p.proto === "TCP" ? '<span class="proto tcp">TCP</span>' : '<span class="proto udp">UDP</span>';
+      const sc = p.scope === "全部介面" ? '<span class="tag all">全部介面</span>'
+        : p.scope === "僅本機" ? '<span class="tag local">僅本機</span>' : `<span class="tag iface">${esc(p.scope)}</span>`;
+      return `<tr class="${fresh.trim()}"><td class="portnum">${esc(p.port)}</td><td>${proto}</td>`
+        + `<td class="proc">${esc(p.cmd)}<span class="pid">${esc(p.pid)}</span></td><td>${sc}</td><td class="note">${esc(portHint(p))}</td></tr>`;
+    }).join("");
+    portsKnown = new Set(ports.map(keyOf)); portsFirst = false;
+  }
+
+  /* ── DNS / 服務 ── */
+  let dnsKnown = new Set(), dnsFirst = true;
+  const CAT = {social:{cn:"社群",ico:"📱"},stream:{cn:"串流影音",ico:"🎵"},chat:{cn:"通訊",ico:"💬"},dev:{cn:"開發",ico:"💻"},
+    ai:{cn:"AI",ico:"🤖"},search:{cn:"搜尋/Google",ico:"🔎"},ads:{cn:"廣告/追蹤",ico:"📊"},sec:{cn:"資安代理",ico:"🛡️"},
+    apple:{cn:"Apple/系統",ico:"🍎"},cloud:{cn:"雲端/CDN",ico:"☁️"},shop:{cn:"購物",ico:"🛒"},other:{cn:"其他",ico:"🌐"}};
+  const RULES = [
+    [/cdninstagram\.com|instagram\.com/,"Instagram","social"],[/fbcdn\.net|facebook\.com|fb\.com/,"Facebook","social"],
+    [/threads\.net|threads\.com/,"Threads","social"],[/tiktok|byteoversea|tiktokcdn/,"TikTok","social"],
+    [/twitter\.com|twimg\.com|x\.com|t\.co/,"X / Twitter","social"],[/linkedin\.com|licdn\.com/,"LinkedIn","social"],
+    [/spotify\.com|spotifycdn\.com|scdn\.co/,"Spotify","stream"],[/youtube\.com|googlevideo\.com|ytimg\.com|youtu\.be/,"YouTube","stream"],
+    [/netflix|nflxvideo|nflximg/,"Netflix","stream"],[/twitch\.tv|ttvnw\.net/,"Twitch","stream"],
+    [/dynamite.*google|chat\.google/,"Google Chat","chat"],[/slack\.com|slack-edge/,"Slack","chat"],[/discord/,"Discord","chat"],
+    [/whatsapp/,"WhatsApp","chat"],[/line\.me|line-apps|line-scdn/,"LINE","chat"],[/telegram|t\.me/,"Telegram","chat"],
+    [/mail\.google|gmail/,"Gmail","chat"],[/vscode-cdn|visualstudio\.com|vscode/,"VS Code","dev"],
+    [/github\.com|githubusercontent|githubassets/,"GitHub","dev"],[/gitlab/,"GitLab","dev"],[/atlassian|jira/,"Jira / Atlassian","dev"],
+    [/npmjs|jsdelivr|unpkg|cdnjs/,"套件 CDN","dev"],[/stackoverflow|stackexchange/,"Stack Overflow","dev"],
+    [/openai|chatgpt/,"OpenAI","ai"],[/anthropic|claude\.ai/,"Anthropic / Claude","ai"],[/gemini|generativelanguage|bard\.google/,"Google Gemini","ai"],
+    [/avast\.com|gendigital/,"Avast 主控台","sec"],
+    [/doubleclick|googletagmanager|google-analytics|googlesyndication|googleadservices|adtrafficquality|scorecardresearch|criteo|adservice/,"廣告/追蹤","ads"],
+    [/apple\.com|icloud|mzstatic|cdn-apple|aaplimg|push\.apple|apple-dns/,"Apple / iCloud","apple"],
+    [/amazon\.|shopee|momoshop|pchome|rakuten|ebay/,"購物","shop"],
+    [/gstatic|googleapis|google\.com|googleusercontent|clients\d?\.google|gvt\d?\.com|google\.|withgoogle/,"Google","search"],
+    [/amazonaws|cloudfront|akamai|fastly|cloudflare|azureedge|edgekey|edgesuite/,"雲端/CDN","cloud"],
+  ];
+  function classify(domain){
+    const d = domain.toLowerCase();
+    for(const [re, svc, cat] of RULES){ if(re.test(d)) return {svc, cat}; }
+    const p = d.replace(/\.$/,"").split("."); return {svc: p.length >= 2 ? p.slice(-2).join(".") : d, cat:"other"};
+  }
+  const isNoise = d => /\.arpa$|\.local$|^_/.test(d.toLowerCase());
+  function within60(hms, nowHms){ if(!hms || !nowHms) return false;
+    const s = t => { const [h,m,x]=t.split(":").map(Number); return h*3600+m*60+x; };
+    const diff = s(nowHms) - s(hms); return diff >= 0 && diff <= 60; }
+  async function fetchDns(){
+    try {
+      const r = await fetch("my-monitor/dns.json?_=" + Date.now(), {cache:"no-store"});
+      if(!r.ok) throw new Error(r.status);
+      renderDns(await r.json()); setLive("dns", true);
+    } catch(e){ setLive("dns", false, "需 sudo 啟動"); }
+  }
+  function renderDns(data){
+    const all = data.domains || [];
+    const doms = all.filter(d => !isNoise(d.name));
+    const noiseN = all.length - doms.length;
+    $("dns-dom").textContent = doms.length;
+    $("dns-total").textContent = data.total ?? "–";
+    $("dns-clock").textContent = data.ts || "";
+    const nowHM = (data.ts || "").slice(11);
+    $("dns-recent").textContent = doms.filter(d => within60(d.last, nowHM)).length;
+    $("dns-badge").textContent = doms.length;
+    pushHist("dns", doms.length, data.ts ? data.ts.slice(11) : "");
+    drawTrend("dns-trend", hist.dns, "#5ec5d4"); $("dns-trend-now").textContent = doms.length;
+    doms.forEach(d => { const c = classify(d.name); d._svc = c.svc; d._cat = c.cat; });
+    buildMis(doms, noiseN);
+    const rows = $("dns-rows");
+    if(doms.length === 0){ rows.innerHTML = '<tr><td class="empty" colspan="5">擷取器運作中，尚無 DNS 查詢…<br>開個網頁試試。</td></tr>'; dnsKnown = new Set(); return; }
+    rows.innerHTML = doms.map(d => {
+      const fresh = (!dnsFirst && !dnsKnown.has(d.name)) ? " fresh" : "";
+      const cat = CAT[d._cat] || CAT.other;
+      const types = d.type.split(",").map(t => `<span class="qt">${esc(t)}</span>`).join(" ");
+      return `<tr class="${fresh.trim()}"><td class="dom">${esc(d.name)}</td>`
+        + `<td class="svc"><span class="name">${esc(d._svc)}</span><span class="cat">${cat.ico} ${cat.cn}</span></td>`
+        + `<td>${types}</td><td class="cnt">${esc(d.count)}</td><td class="time">${esc(d.last)}</td></tr>`;
+    }).join("");
+    dnsKnown = new Set(doms.map(d => d.name)); dnsFirst = false;
+  }
+  function buildMis(doms, noiseN){
+    const mis = $("dns-mis");
+    if(doms.length === 0){ mis.hidden = true; return; }
+    mis.hidden = false;
+    const byCat = {};
+    doms.forEach(d => { (byCat[d._cat] = byCat[d._cat] || {hits:0, svcs:new Set()}); byCat[d._cat].hits += d.count; byCat[d._cat].svcs.add(d._svc); });
+    const cats = Object.entries(byCat).sort((a,b) => b[1].hits - a[1].hits);
+    renderBars("dns-cats", cats.map(([k,v]) => { const c = CAT[k] || CAT.other;
+      return { label:`${c.ico} ${c.cn}`, value:v.hits, vlabel:`${v.svcs.size} 服務 / ${v.hits}`, color:"var(--scan)" }; }));
+    const svcs = [...new Set(doms.slice().sort((a,b)=>b.count-a.count).map(d => d._svc))].filter(s => !/^[\d.]+$/.test(s)).slice(0, 6);
+    $("dns-profile").innerHTML = "這台機器目前在用：" + svcs.map(s => `<b>${esc(s)}</b>`).join("、")
+      + "。公司從這些網域即可還原你在用哪些服務、屬於哪些類別（社群 / 串流 / 開發 / 通訊…），但看不到網址路徑與內容。";
+    $("dns-noise").textContent = noiseN > 0 ? `（已過濾 ${noiseN} 筆系統雜訊：反查 PTR / .local 等）` : "";
+  }
+
+  /* ── 裝置身分（公司能看到分頁，動態填入）── */
+  async function fetchIdentity(){
+    try {
+      const r = await fetch("my-monitor/identity.json?_=" + Date.now(), {cache:"no-store"});
+      if(!r.ok) throw new Error(r.status);
+      const d = await r.json();
+      const set = (id, v) => { const el = $(id); if(el) el.textContent = v || "—"; };
+      set("id-host", d.hostname); set("id-user", d.user);
+      set("id-model", (d.model || "") + (d.os ? " · " + d.os : ""));
+      set("id-serial", d.serial); set("id-ip", d.ip); set("id-mac", d.mac);
+      const u = d.uuid || "";
+      set("id-uuid", u.length > 16 ? (u.slice(0,8) + "…" + u.slice(-6)) : (u || "—"));
+    } catch(e){ /* identity.json 未產生時保留佔位 */ }
+  }
+
+  /* ── 端點代理偵測（公司能看到分頁）── */
+  async function fetchAgents(){
+    try {
+      const r = await fetch("my-monitor/agents.json?_=" + Date.now(), {cache:"no-store"});
+      if(!r.ok) throw new Error(r.status);
+      const d = await r.json();
+      $("agents-count").textContent = d.agents.length;
+      $("agents-mdm").textContent = d.mdm || "—";
+      if(d.ts) $("agents-ts").textContent = "掃描時間 " + d.ts + " · 來源：本機系統擴充 / 程序 / 應用程式（唯讀，免 sudo）";
+      const rows = $("agents-rows");
+      if(!d.agents.length){ rows.innerHTML = '<tr><td class="empty" colspan="4">未偵測到端點安全 / 管理代理</td></tr>'; return; }
+      rows.innerHTML = d.agents.map(a =>
+        `<tr><td class="item">${esc(a.name)}</td><td class="val">${esc(a.cat)}</td><td class="src">${esc(a.via)}</td><td class="val">${esc(a.sees)}</td></tr>`
+      ).join("");
+    } catch(e){ /* agents.json 未產生時保留掃描中 */ }
+  }
+
+  let idTick = 0;
+  function tickAll(){
+    fetchConn(); fetchPorts(); fetchDns();
+    if(idTick++ % 15 === 0){ fetchIdentity(); fetchAgents(); }
+  }
+  tickAll(); setInterval(tickAll, 2000);
+
+  /* ── 趨勢圖 hover：顯示時間與數量 ── */
+  const tip = $("tip");
+  ["conn","ports","dns"].forEach(tab => {
+    const cv = $(tab + "-trend"); if(!cv) return;
+    cv.addEventListener("mousemove", e => {
+      const arr = hist[tab]; if(!arr || arr.length < 2){ tip.style.display = "none"; return; }
+      const rect = cv.getBoundingClientRect();
+      const rel = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const idx = Math.round(rel * (arr.length - 1));
+      hover.tab = tab; hover.idx = idx;
+      tip.innerHTML = `<span class="tv">${arr[idx]}</span><span class="tt">${(histT[tab][idx] || "—")}</span>`;
+      tip.style.display = "block";
+      tip.style.left = e.clientX + "px";
+      tip.style.top = rect.top + "px";
+      if(reduceMotion) drawTrend(tab + "-trend", arr, "#5ec5d4", null, idx);
+    });
+    cv.addEventListener("mouseleave", () => {
+      hover.tab = null; hover.idx = null; tip.style.display = "none";
+      if(reduceMotion) drawTrend(tab + "-trend", hist[tab], "#5ec5d4", null, null);
+    });
+  });
+</script>
+</body>
+</html>

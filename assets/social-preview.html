@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{ --ground:#15171e; --surface:#1d2029; --hairline:#2c313d; --text:#dce0e8; --muted:#8a92a0; --faint:#5e6573;
+         --scan:#5ec5d4; --crit:#e5575c; --exposed:#ef8f4c; --latent:#e0bd55; --blind:#54c08a;
+         --mono:ui-monospace,"SF Mono",Menlo,monospace; --sans:"Helvetica Neue",system-ui,sans-serif; }
+  *{ box-sizing:border-box; margin:0; }
+  html,body{ width:1280px; height:640px; }
+  body{ background:var(--ground); color:var(--text); font-family:var(--sans); overflow:hidden; position:relative;
+        background-image:linear-gradient(rgba(94,197,212,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(94,197,212,.045) 1px,transparent 1px);
+        background-size:48px 48px; }
+  .glow{ position:absolute; width:760px; height:760px; right:-200px; top:-260px; border-radius:50%;
+         background:radial-gradient(circle,rgba(94,197,212,.16),transparent 62%); }
+  .wrap{ position:absolute; inset:0; padding:74px 80px; display:flex; flex-direction:column; justify-content:space-between; }
+  .top{ display:flex; align-items:center; gap:22px; }
+  .logo{ width:76px; height:76px; border-radius:18px; flex:none; box-shadow:0 8px 30px rgba(0,0,0,.4); }
+  .name{ font-size:62px; font-weight:760; letter-spacing:-.025em; }
+  .tagline{ margin-top:30px; font-size:27px; color:var(--text); font-weight:550; line-height:1.45; max-width:760px; }
+  .tagline .dim{ color:var(--muted); }
+  .chips{ display:flex; gap:13px; margin-top:34px; flex-wrap:wrap; }
+  .chip{ display:flex; align-items:center; gap:10px; border:1px solid var(--hairline); background:var(--surface);
+         border-radius:100px; padding:11px 20px; font-size:20px; color:var(--text); }
+  .chip .d{ width:11px; height:11px; border-radius:3px; }
+  .foot{ display:flex; align-items:center; gap:14px; font-family:var(--mono); font-size:19px; color:var(--faint); letter-spacing:.04em; }
+  .foot .live{ width:11px; height:11px; border-radius:50%; background:var(--blind); box-shadow:0 0 10px var(--blind); }
+  .foot b{ color:var(--scan); font-weight:600; }
+  .art{ position:absolute; right:78px; top:150px; width:430px; opacity:.95; }
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+
+  <!-- 右側裝飾：雷達 + 趨勢圖 -->
+  <svg class="art" viewBox="0 0 430 360" fill="none">
+    <g stroke="#5ec5d4" stroke-opacity="0.5">
+      <circle cx="300" cy="110" r="95" stroke-opacity="0.16" stroke-width="1.5"/>
+      <circle cx="300" cy="110" r="64" stroke-opacity="0.28" stroke-width="1.6"/>
+      <circle cx="300" cy="110" r="34" stroke-opacity="0.5" stroke-width="1.8"/>
+    </g>
+    <line x1="300" y1="110" x2="368" y2="62" stroke="#5ec5d4" stroke-width="1.8" stroke-opacity="0.55" stroke-linecap="round"/>
+    <circle cx="300" cy="110" r="5" fill="#5ec5d4"/>
+    <circle cx="368" cy="62" r="6" fill="#ef8f4c"/>
+    <!-- 趨勢面積圖 -->
+    <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5ec5d4" stop-opacity="0.34"/><stop offset="1" stop-color="#5ec5d4" stop-opacity="0"/>
+    </linearGradient></defs>
+    <path d="M10 320 L10 270 L60 250 L110 285 L160 210 L210 245 L260 180 L310 215 L360 150 L410 196 L410 320 Z" fill="url(#g)"/>
+    <path d="M10 270 L60 250 L110 285 L160 210 L210 245 L260 180 L310 215 L360 150 L410 196" stroke="#5ec5d4" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="410" cy="196" r="6" fill="#eafffb"/>
+  </svg>
+
+  <div class="wrap">
+    <div>
+      <div class="top">
+        <svg class="logo" viewBox="0 0 32 32">
+          <rect width="32" height="32" rx="9" fill="#1d2029"/>
+          <g fill="none" stroke="#5ec5d4" stroke-linecap="round">
+            <circle cx="16" cy="16" r="12" stroke-opacity="0.22" stroke-width="1.4"/>
+            <circle cx="16" cy="16" r="8.5" stroke-opacity="0.5" stroke-width="1.6"/>
+            <circle cx="16" cy="16" r="5" stroke-opacity="0.9" stroke-width="2"/>
+          </g>
+          <path d="M16 16 L24.5 10" stroke="#5ec5d4" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.55"/>
+          <circle cx="16" cy="16" r="2.5" fill="#5ec5d4"/>
+          <circle cx="21.8" cy="10.2" r="2" fill="#ef8f4c"/>
+        </svg>
+        <div class="name">network-monitor</div>
+      </div>
+      <div class="tagline">監看你自己的主機。<span class="dim">即時對外連線、監聽埠、DNS 服務，並對照「公司透過端點代理可能看得到什麼」。</span></div>
+    </div>
+
+    <div>
+      <div class="chips">
+        <span class="chip"><span class="d" style="background:var(--crit)"></span>公司能看到</span>
+        <span class="chip"><span class="d" style="background:var(--exposed)"></span>對外連線</span>
+        <span class="chip"><span class="d" style="background:var(--latent)"></span>監聽埠</span>
+        <span class="chip"><span class="d" style="background:var(--scan)"></span>DNS / 服務</span>
+      </div>
+      <div class="foot" style="margin-top:34px"><span class="live"></span>macOS · localhost · 純本機不外傳 · <b>./run.sh</b></div>
+    </div>
+  </div>
+</body>
+</html>

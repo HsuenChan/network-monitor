@@ -1,0 +1,13 @@
+# 執行期產生的檔案
+my-monitor/connections.json
+my-monitor/ports.json
+my-monitor/dns.json
+my-monitor/identity.json
+my-monitor/agents.json
+*.json.tmp
+*.log
+.conn.pid
+.ports.pid
+.server.pid
+__pycache__/
+.DS_Store
