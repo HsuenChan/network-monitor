@@ -30,9 +30,11 @@ echo $! > .server.pid; disown 2>/dev/null || true
 echo "✓ 網頁伺服器啟動 (pid $(cat .server.pid))"
 
 URL="http://127.0.0.1:${PORT}/index.html"
-echo "✓ 開啟 $URL"
-sleep 1
-open "$URL" 2>/dev/null || echo "  請手動開啟：$URL"
+echo "✓ 網址 $URL"
+if [ -z "${NO_OPEN:-}" ]; then
+  sleep 1
+  open "$URL" 2>/dev/null || echo "  請手動開啟：$URL"
+fi
 
 echo
 echo "監控中。停止請執行：./stop.sh"

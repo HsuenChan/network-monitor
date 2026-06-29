@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect width="32" height="32" rx="7" fill="#15171e"/>
-  <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" fill="none" stroke="#2c313d"/>
-  <g fill="none" stroke="#5ec5d4" stroke-linecap="round">
+  <rect width="32" height="32" rx="7" fill="#0b0f17"/>
+  <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" fill="none" stroke="#1c2430"/>
+  <g fill="none" stroke="#818cf8" stroke-linecap="round">
     <circle cx="16" cy="16" r="12.5" stroke-opacity="0.22" stroke-width="1.4"/>
     <circle cx="16" cy="16" r="9" stroke-opacity="0.5" stroke-width="1.6"/>
     <circle cx="16" cy="16" r="5.2" stroke-opacity="0.9" stroke-width="2"/>
   </g>
-  <path d="M16 16 L25.2 9.6" stroke="#5ec5d4" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.55"/>
-  <circle cx="16" cy="16" r="2.6" fill="#5ec5d4"/>
-  <circle cx="22.36" cy="9.64" r="2.1" fill="#ef8f4c"/>
+  <path d="M16 16 L25.2 9.6" stroke="#818cf8" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.55"/>
+  <circle cx="16" cy="16" r="2.6" fill="#818cf8"/>
+  <circle cx="22.36" cy="9.64" r="2.1" fill="#fb923c"/>
 </svg>
